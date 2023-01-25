@@ -21,7 +21,7 @@ class Operation
       yield self
     end
   ensure
-    finalize if block_given?
+    finish if block_given?
   end
 
   def start
@@ -121,7 +121,8 @@ root = Operation.new('root')
 root.start
 
 # JSON body
-root.on_start(:http_request) do |op|
+root.on_start(:http_request) do |op, *args|
+  puts args
   op.on_start(:json_parse) do |op|
     did_read = false
 
@@ -140,12 +141,13 @@ end
 # raw body
 root.on_start(:http_request) do |op|
   raw = ''
-
   op.on_start(:read_body) do |op|
     op.on_finish do |op, buf|
       if buf.nil?
+        puts "finish reading"
         op.emit_data(RawHTTPBody.new(raw))
       else
+        puts "read '#{buf}'"
         raw << buf
       end
     end
@@ -171,20 +173,19 @@ root.on_start(:http_request) do |op|
 end
 
 class ChunkReader
-  def initialize(io, size = 16)
+  def initialize(io)
     @io = io
-    @size = size
   end
 
-  def read
-    @io.read(@size)
+  def read(size)
+    @io.read(size)
   end
 end
 
 class JSONBodyParser
   def parse(io)
     body = ''
-    while (chunk = io.read)
+    while (chunk = io.read(16))
       body << chunk
     end
 
@@ -193,7 +194,7 @@ class JSONBodyParser
 end
 
 class FakeServer
-  def handle
+  def handle(*args)
     body = StringIO.new('{ "foo": "bar", "one": "two", "three": "four" }')
     reader = ChunkReader.new(body)
     parsed = JSONBodyParser.new.parse(reader)
@@ -203,21 +204,21 @@ end
 
 module ReadHook
   def read(*args)
-    puts 'readhook in'
-    op = Operation.new('readhook')
-    op.start
-    op.emit_start(:read_body)
-    buf = super
-  ensure
-    op.emit_finish(buf)
-    op.finish
+    puts "readhook in #{args}"
+    buf = ''
+    Operation.new('readhook') do |op|
+      op.emit_start(:read_body)
+      buf = super
+      op.emit_finish(buf)
+    end
     puts 'readhook out'
+    buf
   end
 end
 
 module ParseHook
   def parse(*args)
-    puts 'parsehook in'
+    puts "parsehook in #{args}"
     op = Operation.new('parsehook')
     op.start
     op.emit_start(:json_parse)
@@ -234,7 +235,7 @@ module HandleHook
     puts 'handlehook in'
     op = Operation.new('handlehook')
     op.start
-    op.emit_start(:http_request)
+    op.emit_start(:http_request, "extra agruments")
     super
   ensure
     op.emit_finish
