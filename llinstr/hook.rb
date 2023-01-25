@@ -608,12 +608,13 @@ end
 Hook['B#hello'].add do
   append do |stack, env|
     puts 'X+'
+    env[:kwargs].merge!(foo: 'baz')
     r = stack.call(env)
     puts 'X-'
-    r.merge(foo: 'bar')
   end
 
   append do |stack, env|
+    puts 'X++'
     begin
       p env
       env[:args][0] = 43
@@ -622,6 +623,7 @@ Hook['B#hello'].add do
       p env
       p r
     end
+    puts 'X--'
   end
 end.install
 
